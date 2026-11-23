@@ -31,6 +31,16 @@ try {
   $r = Measure-Job -FilePath pwsh -ArgumentList '-NoProfile', '-Command', 'Start-Sleep 2'
   Check 'a 2 second sleep reports 2 to 10 seconds' ($r.Seconds -ge 2 -and $r.Seconds -le 10) "(got $($r.Seconds))"
 
+  # Blocked progress output in parent -OnTick must not inflate the child's measured Seconds (GetProcessTimes).
+  $tickBlocked = @{ Done = $false }
+  $rBlocked = Measure-Job -FilePath pwsh -ArgumentList '-NoProfile', '-Command', 'Start-Sleep -Milliseconds 1500' -OnTick {
+    param($final)
+    if (-not $final -and -not $tickBlocked.Done) { $tickBlocked.Done = $true; Start-Sleep -Seconds 4 }
+  }
+  Check 'a parent -OnTick block while the child exits does not inflate measured Seconds' (
+    $rBlocked.ExitCode -eq 0 -and $tickBlocked.Done -and $rBlocked.Seconds -ge 1.0 -and $rBlocked.Seconds -le 3.5
+  ) "(got $($rBlocked.Seconds) s)"
+
   # The parent is cmd, which allocates nothing: only the child's memory can reach the bound.
   $allocate = Join-Path $dir 'allocate.ps1'
   Set-Content -LiteralPath $allocate -Value '$b = [byte[]]::new(300MB); [Array]::Fill($b, [byte]1); exit 0'
@@ -232,7 +242,7 @@ Check "the measurement's mark names its log" ($outputs.Count -ge 1 -and -not ($o
     if ($text -notmatch [regex]::Escape("## $($label.label) ($($label.decision))")) { $missing += "heading $($label.label)" }
     if ($text -notmatch [regex]::Escape($label.note)) { $missing += "note $($label.label)" }
     foreach ($step in $label.steps) {
-      $row = "| $($step.step) | $(([double]$step.median_seconds).ToString('0.0', [Globalization.CultureInfo]::InvariantCulture)) | $(([double]$step.median_peak_mb).ToString('0.0', [Globalization.CultureInfo]::InvariantCulture)) |"
+      $row = "| $($step.step) | $(([double]$step.median_seconds).ToString('0.00', [Globalization.CultureInfo]::InvariantCulture)) | $(([double]$step.median_peak_mb).ToString('0.0', [Globalization.CultureInfo]::InvariantCulture)) |"
       if ($text -notmatch [regex]::Escape($row)) { $missing += "row $($label.label)/$($step.step)" }
     }
   }
@@ -244,17 +254,26 @@ Check "the measurement's mark names its log" ($outputs.Count -ge 1 -and -not ($o
   $run = Invoke-Measure 'ok' @('-RenderOnly')
   Check '-RenderOnly rebuilds a deleted document without measuring' ($run.Exit -eq 0 -and (Test-Path -LiteralPath $doc) -and (Get-Content -LiteralPath $doc -Raw) -ceq $text -and -not (Test-Path -LiteralPath (Join-Path $dir 'runs.txt')))
 
-  # A document that cannot be written (a folder is in its place) is an error that names the recovery, and the
-  # measurement itself is still stored.
+  # A document that cannot be written (a folder is in its place) is an error that names the exact recovery command
+  # (carrying -OutDir and -Baseline), and executing that recovery command restores the comparison from stored data.
   Remove-Item -LiteralPath $doc
   New-Item -ItemType Directory -Path $doc | Out-Null
-  $run = Invoke-Measure 'ok' @('-Label', 'unrendered', '-Decision', 'kept', '-Samples', '1')
+  $run = Invoke-Measure 'ok' @('-Label', 'unrendered', '-Decision', 'kept', '-Samples', '1', '-Baseline', 'baseline')
   $data = Get-Content -LiteralPath $json -Raw | ConvertFrom-Json
-  Check 'a document that cannot be written exits 1 naming -RenderOnly, with the data stored' ($run.Exit -eq 1 -and $run.Text -match '-RenderOnly' -and
-    (@($data.labels).label -contains 'unrendered')) "(exit $($run.Exit): $($run.Text))"
+  $retryMatch = [regex]::Match($run.Text, 'run (pwsh scripts/measure-build\.ps1 -RenderOnly[^\r\n]+?) once that is fixed')
+  Check 'a document that cannot be written exits 1 naming -RenderOnly with -OutDir and -Baseline, with the data stored' (
+    $run.Exit -eq 1 -and $retryMatch.Success -and $retryMatch.Groups[1].Value -match '-OutDir' -and $retryMatch.Groups[1].Value -match '-Baseline baseline' -and
+    (@($data.labels).label -contains 'unrendered')
+  ) "(exit $($run.Exit): $($run.Text))"
   Remove-Item -LiteralPath $doc -Recurse -Force
-  $run = Invoke-Measure 'ok' @('-RenderOnly')
-  Check '-RenderOnly recovers the document afterwards' ($run.Exit -eq 0 -and (Get-Content -LiteralPath $doc -Raw) -match '## unrendered \(kept\)')
+  $repoRootForRetry = Split-Path $PSScriptRoot
+  $retryCmd = $retryMatch.Groups[1].Value
+  $retryOut = & pwsh -NoProfile -Command "Set-Location '$repoRootForRetry'; $retryCmd" 2>&1 | Out-String
+  $retryExit = $LASTEXITCODE
+  $recoveredDoc = if (Test-Path -LiteralPath $doc) { Get-Content -LiteralPath $doc -Raw } else { '' }
+  Check 'executing the printed recovery command restores the document and baseline comparison' (
+    $retryExit -eq 0 -and $recoveredDoc -match '## unrendered \(kept\)' -and $recoveredDoc -match '## Comparison against baseline' -and $recoveredDoc -match '### unrendered vs baseline'
+  ) "(exit $retryExit): $retryOut"
 
   # Refusals leave the stored data exactly as it was.
   $before = [IO.File]::ReadAllBytes($json)
@@ -270,12 +289,18 @@ Check "the measurement's mark names its log" ($outputs.Count -ge 1 -and -not ($o
   $run = Invoke-Measure 'ok' @('-Label', 'Bad Label', '-Decision', 'kept')
   Check 'a label that is not a slug is refused' ($run.Exit -eq 2 -and (Test-Unchanged))
 
-  foreach ($case in @(@{ name = 'malformed'; text = '{ not json' }, @{ name = 'without its schema version'; text = '{ "labels": [] }' })) {
+  foreach ($case in @(
+      @{ name = 'malformed'; text = '{ not json'; pattern = 'does not parse as JSON' }
+      @{ name = 'without its schema version'; text = '{ "labels": [] }'; pattern = 'needs schema_version 1' }
+      @{ name = 'with an incomplete step missing median_seconds'; text = '{ "schema_version": 1, "labels": [ { "label": "damaged", "decision": "baseline", "steps": [ { "step": "nothing to do", "seconds": [1.0], "peak_mb": [50.0], "median_peak_mb": 50.0 } ] } ] }'; pattern = "label 'damaged', step 'nothing to do', missing or invalid 'median_seconds'" }
+    )) {
     Set-Content -LiteralPath $json -Value $case.text
     $bad = [IO.File]::ReadAllBytes($json)
+    $docBeforeBad = [IO.File]::ReadAllBytes($doc)
     $run = Invoke-Measure 'ok' @('-Label', 'after', '-Decision', 'kept', '-Samples', '1')
     $same = [Convert]::ToBase64String([IO.File]::ReadAllBytes($json)) -eq [Convert]::ToBase64String($bad)
-    Check "a data file $($case.name) is refused before measuring and left alone" ($run.Exit -eq 1 -and $same -and -not (Test-Path -LiteralPath (Join-Path $dir 'runs.txt'))) "(exit $($run.Exit): $($run.Text))"
+    $sameDoc = [Convert]::ToBase64String([IO.File]::ReadAllBytes($doc)) -eq [Convert]::ToBase64String($docBeforeBad)
+    Check "a data file $($case.name) is refused before measuring and left alone" ($run.Exit -eq 1 -and $run.Text -match $case.pattern -and $same -and $sameDoc -and -not (Test-Path -LiteralPath (Join-Path $dir 'runs.txt'))) "(exit $($run.Exit): $($run.Text))"
   }
   [IO.File]::WriteAllBytes($json, $before)
 
@@ -394,7 +419,7 @@ if ($workers) {
     if ($mode -eq 'warm-fail-second' -and $warmIdx -eq 2) { 'error: second warm build broke'; exit 4 }
     if ($mode -eq 'warm-noop') { 'Build succeeded.'; exit 0 }  # succeeds and compiles nothing
     if ($mode -eq 'warm-vary') { Start-Sleep -Milliseconds (300 * ($warmIdx - 1)) }
-    if ($mode -eq 'slow-warm') { Start-Sleep -Seconds 6 }
+    if ($mode -eq 'slow-warm') { Start-Sleep -Seconds 11 }
     if ($mode -eq 'warm-no-reuse' -and $warmIdx -eq 2) {
       Remove-Item -LiteralPath (Join-Path $here 'worker2.pid') -ErrorAction Ignore
       Start-Process pwsh -ArgumentList '-NoProfile', '-File', (Join-Path $here 'worker.ps1'), '/nodemode:1', $here, 2 -WindowStyle Hidden
@@ -610,6 +635,7 @@ exit $LASTEXITCODE
           [ordered]@{ step = 'nothing to do'; seconds = @(10.0, 10.2, 10.4); peak_mb = @(100.0, 101.0, 102.0); median_seconds = 10.2; median_peak_mb = 101.0 }
           [ordered]@{ step = 'one file changed'; seconds = @(20.0, 22.0, 24.0); peak_mb = @(200.0, 200.0, 200.0); median_seconds = 22.0; median_peak_mb = 200.0 }
           [ordered]@{ step = 'fresh build'; seconds = @(30.0, 31.0, 32.0); peak_mb = @(300.0, 305.0, 310.0); median_seconds = 31.0; median_peak_mb = 305.0 }
+          [ordered]@{ step = 'sub-tenth'; seconds = @(5.00, 5.01, 5.03); peak_mb = @(50.0, 50.0, 50.0); median_seconds = 5.01; median_peak_mb = 50.0 }
         )
       }
       [ordered]@{
@@ -623,12 +649,14 @@ exit $LASTEXITCODE
         configuration = [ordered]@{ build_args = @(); launcher = $null; linker = 'link.exe'; env_cache = $true }
         samples       = 3
         steps         = @(
-          # delta time = -3.0 s (spread 0.2 / 0.4 -> ok), delta mb = -20.0 MB (spread 1.0 / 2.0 -> ok)
+          # delta time = -3.00 s (spread 0.20 / 0.40 -> ok), delta mb = -20.0 MB (spread 1.0 / 2.0 -> ok)
           [ordered]@{ step = 'nothing to do'; seconds = @(7.1, 7.2, 7.3); peak_mb = @(80.5, 81.0, 81.5); median_seconds = 7.2; median_peak_mb = 81.0; spread_seconds = 0.2; spread_peak_mb = 1.0 }
-          # delta time = -1.0 s (baseline spread 4.0 > 1.0 -> WARNING), delta mb = +2.0 MB (cand spread 6.0 > 2.0 -> WARNING)
+          # delta time = -1.00 s (baseline spread 4.00 > 1.00 -> WARNING), delta mb = +2.0 MB (cand spread 6.0 > 2.0 -> WARNING)
           [ordered]@{ step = 'one file changed'; seconds = @(20.5, 21.0, 21.5); peak_mb = @(199.0, 202.0, 205.0); median_seconds = 21.0; median_peak_mb = 202.0; spread_seconds = 1.0; spread_peak_mb = 6.0 }
-          # exact threshold equality: delta time = -2.0 s, max spread = 2.0 s -> NO warning; delta mb = -10.0 MB, max spread = 10.0 MB -> NO warning
+          # exact threshold equality: delta time = -2.00 s, max spread = 2.00 s -> NO warning; delta mb = -10.0 MB, max spread = 10.0 MB -> NO warning
           [ordered]@{ step = 'fresh build'; seconds = @(28.0, 29.0, 30.0); peak_mb = @(290.0, 295.0, 300.0); median_seconds = 29.0; median_peak_mb = 295.0; spread_seconds = 2.0; spread_peak_mb = 10.0 }
+          # sub-tenth precision: delta = -0.02 s, baseline spread = 0.03 s > 0.02 -> WARNING, rendered to hundredths (never 0.0)
+          [ordered]@{ step = 'sub-tenth'; seconds = @(4.99, 4.99, 4.99); peak_mb = @(50.0, 50.0, 50.0); median_seconds = 4.99; median_peak_mb = 50.0; spread_seconds = 0.0; spread_peak_mb = 0.0 }
           # extra step not in baseline
           [ordered]@{ step = 'python test suite'; seconds = @(50.0); peak_mb = @(400.0); median_seconds = 50.0; median_peak_mb = 400.0; spread_seconds = 0.0; spread_peak_mb = 0.0 }
         )
@@ -670,26 +698,52 @@ exit $LASTEXITCODE
   $cmpOutText = & pwsh -NoProfile -File $measure -OutDir $cmpOut -RenderOnly -Baseline 'hist-base' 2>&1 | Out-String
   $cmpExit = $LASTEXITCODE
   $cmpMd = Get-Content -LiteralPath $cmpDoc -Raw
-  Check '-RenderOnly -Baseline compares historical native labels on stdout with signed deltas, spreads, warning, equality ok, missing step, and incompatible targets' (
+  Check '-RenderOnly -Baseline compares historical native labels on stdout with hundredth-second precision, signed deltas, spreads, warning, equality ok, missing step, and incompatible targets' (
     $cmpExit -eq 0 -and
     $cmpOutText -match "comparison against baseline 'hist-base' \(native/native\):" -and
-    $cmpOutText -match 'nothing to do: time -3\.0 s \(spread 0\.2 / 0\.4 s\), memory -20\.0 MB \(spread 1\.0 / 2\.0 MB\) \[ok\]' -and
-    $cmpOutText -match 'one file changed: time -1\.0 s \(spread 1\.0 / 4\.0 s\), memory \+2\.0 MB \(spread 6\.0 / 0\.0 MB\) \[WARNING: time and memory spread wider than change\]' -and
-    $cmpOutText -match 'fresh build: time -2\.0 s \(spread 2\.0 / 2\.0 s\), memory -10\.0 MB \(spread 10\.0 / 10\.0 MB\) \[ok\]' -and
+    $cmpOutText -match 'nothing to do: time -3\.00 s \(spread 0\.20 / 0\.40 s\), memory -20\.0 MB \(spread 1\.0 / 2\.0 MB\) \[ok\]' -and
+    $cmpOutText -match 'one file changed: time -1\.00 s \(spread 1\.00 / 4\.00 s\), memory \+2\.0 MB \(spread 6\.0 / 0\.0 MB\) \[WARNING: time and memory spread wider than change\]' -and
+    $cmpOutText -match 'fresh build: time -2\.00 s \(spread 2\.00 / 2\.00 s\), memory -10\.0 MB \(spread 10\.0 / 10\.0 MB\) \[ok\]' -and
+    $cmpOutText -match 'sub-tenth: time -0\.02 s \(spread 0\.00 / 0\.03 s\), memory 0\.0 MB \(spread 0\.0 / 0\.0 MB\) \[WARNING: time spread wider than change\]' -and
     $cmpOutText -match "python test suite: not in baseline 'hist-base'" -and
     $cmpOutText -match 'hist-dotnet: incompatible target \(dotnet/Bosun\.slnx vs native/native\), not compared' -and
     $cmpOutText -match 'single-proj-dotnet: incompatible target \(dotnet/src/Bosun\.Core/Bosun\.Core\.csproj vs native/native\), not compared'
   ) "(exit $cmpExit): $cmpOutText"
-  Check '-RenderOnly -Baseline renders comparison table, raw samples, spreads, warning, and incompatible notice in Markdown' (
+  Check '-RenderOnly -Baseline renders comparison table, hundredth-second raw samples, spreads, warning, and incompatible notice in Markdown' (
     $cmpMd -match '## Comparison against hist-base' -and
-    $cmpMd -match '\| nothing to do \| -3\.0 s \| 0\.2 / 0\.4 \| -20\.0 MB \| 1\.0 / 2\.0 \| ok \|' -and
-    $cmpMd -match '\| one file changed \| -1\.0 s \| 1\.0 / 4\.0 \| \+2\.0 MB \| 6\.0 / 0\.0 \| WARNING: time and memory spread wider than change \|' -and
-    $cmpMd -match '\| fresh build \| -2\.0 s \| 2\.0 / 2\.0 \| -10\.0 MB \| 10\.0 / 10\.0 \| ok \|' -and
+    $cmpMd -match '\| nothing to do \| -3\.00 s \| 0\.20 / 0\.40 \| -20\.0 MB \| 1\.0 / 2\.0 \| ok \|' -and
+    $cmpMd -match '\| one file changed \| -1\.00 s \| 1\.00 / 4\.00 \| \+2\.0 MB \| 6\.0 / 0\.0 \| WARNING: time and memory spread wider than change \|' -and
+    $cmpMd -match '\| fresh build \| -2\.00 s \| 2\.00 / 2\.00 \| -10\.0 MB \| 10\.0 / 10\.0 \| ok \|' -and
+    $cmpMd -match '\| sub-tenth \| -0\.02 s \| 0\.00 / 0\.03 \| 0\.0 MB \| 0\.0 / 0\.0 \| WARNING: time spread wider than change \|' -and
+    $cmpMd -match '5\.00, 5\.01, 5\.03' -and
     $cmpMd -match "\| python test suite \| n/a \| n/a \| n/a \| n/a \| not in baseline 'hist-base' \|" -and
     $cmpMd -match 'Not compared: incompatible target \(dotnet/Bosun\.slnx vs native/native\)\.' -and
     $cmpMd -match '100\.0, 101\.0, 102\.0' -and
     $cmpMd -notmatch "[–—]"
   )
+
+  # --- -Tests -Samples 3 single-run exception: Python suite runs exactly once with 1 sample and 0.00 s / 0.0 MB spreads ---
+  $pyBin = Join-Path $dir 'py-bin'
+  New-Item -ItemType Directory -Path $pyBin | Out-Null
+  $pyCalls = Join-Path $pyBin 'py-calls.txt'
+  Set-Content -LiteralPath (Join-Path $pyBin 'python.cmd') -Value "@echo py-run>>`"$pyCalls`" && exit /b 0"
+  $pyOutDir = Join-Path $dir 'py-docs'
+  New-Item -ItemType Directory -Path $pyOutDir | Out-Null
+  $savedPathPy = $env:PATH
+  try {
+    $env:PATH = "$pyBin;$env:PATH"
+    Set-Content -LiteralPath (Join-Path $dir 'mode.txt') -Value 'ok'
+    $pyRunText = & pwsh -NoProfile -File $measure -BuildScript $fake -TouchFile (Join-Path $dir 'source.cpp') -OutDir $pyOutDir -Label 'with-tests' -Decision 'kept' -Samples 3 -Tests 2>&1 | Out-String
+    $pyRunExit = $LASTEXITCODE
+  } finally { $env:PATH = $savedPathPy }
+  $pyRunCount = @(Get-Content -LiteralPath $pyCalls -ErrorAction Ignore).Count
+  $pyJson = if (Test-Path -LiteralPath (Join-Path $pyOutDir 'build-performance.json')) { Get-Content -LiteralPath (Join-Path $pyOutDir 'build-performance.json') -Raw | ConvertFrom-Json } else { $null }
+  $pyStep = if ($pyJson) { ($pyJson.labels | Where-Object label -eq 'with-tests').steps | Where-Object step -eq 'python test suite' } else { $null }
+  Check '-Tests -Samples 3 runs the Python suite exactly once with 1 sample and zero spreads' (
+    $pyRunExit -eq 0 -and $pyRunCount -eq 1 -and $null -ne $pyStep -and
+    @($pyStep.seconds).Count -eq 1 -and @($pyStep.peak_mb).Count -eq 1 -and
+    $pyStep.spread_seconds -eq 0 -and $pyStep.spread_peak_mb -eq 0
+  ) "(exit $pyRunExit, calls $pyRunCount, step $($pyStep | ConvertTo-Json -Compress)): $pyRunText"
   # Comparing against hist-dotnet refuses numeric delta against single-proj-dotnet (different target).
   $cmpDnOut = & pwsh -NoProfile -File $measure -OutDir $cmpOut -RenderOnly -Baseline 'hist-dotnet' 2>&1 | Out-String
   Check '-Baseline refuses numeric delta between .NET solution and single-project .NET labels' (
@@ -893,7 +947,7 @@ exit $LASTEXITCODE
   $lingerStartAt = -1.0
   $lingerTickAt = -1.0
   $warmStartAt = -1.0
-  $warmTickAt = -1.0
+  $warmTicks = [Collections.Generic.List[object]]::new()
   $liveDnExitCode = -1
   try {
     $dnClock = [Diagnostics.Stopwatch]::StartNew()
@@ -907,7 +961,9 @@ exit $LASTEXITCODE
           if ($lingerStartAt -lt 0 -and $line -match 'starting linger wait \(6 s\)\.\.\.') { $lingerStartAt = $dnClock.Elapsed.TotalSeconds }
           if ($lingerTickAt -lt 0 -and $line -match 'linger wait: still waiting \(5 s\)') { $lingerTickAt = $dnClock.Elapsed.TotalSeconds }
           if ($warmStartAt -lt 0 -and $line -match 'starting one file changed, after a build sample 1/1\.\.\.') { $warmStartAt = $dnClock.Elapsed.TotalSeconds }
-          if ($warmTickAt -lt 0 -and $line -match 'one file changed, after a build sample 1/1: still running \(5 s\)') { $warmTickAt = $dnClock.Elapsed.TotalSeconds }
+          if ($line -match 'one file changed, after a build sample 1/1: still running \((\d+) s\)') {
+            $warmTicks.Add([pscustomobject]@{ Sec = [int]$Matches[1]; At = $dnClock.Elapsed.TotalSeconds })
+          }
         }
         $lineTask = $liveDotnet.Proc.StandardOutput.ReadLineAsync()
       } elseif ($liveDotnet.Proc.HasExited) {
@@ -920,11 +976,13 @@ exit $LASTEXITCODE
     Stop-LivePwsh $liveDotnet
   }
   foreach ($id in Get-WorkerIds) { $workerIds.Add($id) }
-  $dnTicksOk = $lingerStartAt -ge 0 -and $lingerTickAt -ge 0 -and $warmStartAt -ge 0 -and $warmTickAt -ge 0 -and
-    ($lingerTickAt -lt $warmStartAt) -and (($lingerTickAt - $lingerStartAt) -ge 4.0) -and (($warmTickAt - $warmStartAt) -ge 4.0)
-  Check '.NET linger wait and slow warm build emit timely progress ticks in their own step windows live before exit' (
+  $dnTicksOk = $lingerStartAt -ge 0 -and $lingerTickAt -ge 0 -and $warmStartAt -ge 0 -and $warmTicks.Count -ge 2 -and
+    ($lingerTickAt -lt $warmStartAt) -and (($lingerTickAt - $lingerStartAt) -ge 4.0) -and
+    $warmTicks[0].Sec -ge 5 -and $warmTicks[1].Sec -ge 10 -and $warmTicks[1].Sec -gt $warmTicks[0].Sec -and
+    (($warmTicks[0].At - $warmStartAt) -ge 4.0) -and (($warmTicks[1].At - $warmStartAt) -ge 9.0)
+  Check '.NET linger wait and slow warm build emit timely successive progress ticks in their own step windows live before exit' (
     $liveDnExitCode -eq 0 -and $dnTicksOk
-  ) "(exit $liveDnExitCode, linger $([Math]::Round($lingerStartAt, 1))s->$([Math]::Round($lingerTickAt, 1))s, warm $([Math]::Round($warmStartAt, 1))s->$([Math]::Round($warmTickAt, 1))s)"
+  ) "(exit $liveDnExitCode, linger $([Math]::Round($lingerStartAt, 1))s->$([Math]::Round($lingerTickAt, 1))s, warm $(($warmTicks | ForEach-Object { "$($_.Sec)s@$([Math]::Round($_.At - $warmStartAt, 1))s" }) -join ','))"
 
   # --- -Diagnose failure paths (against existing label, exit 1, prior data intact, partial binlog cleaned up) ---
   $diagScratch = Join-Path $dir 'diag-scratch'
@@ -1035,7 +1093,7 @@ exit $LASTEXITCODE
     $samplesUnchanged = $realEntry -and $preDiagSamples.Count -eq 4 -and @($realEntry.steps).Count -eq 4
     if ($samplesUnchanged) {
       foreach ($st in $realEntry.steps) {
-        $fmt = "$(([double]$st.median_seconds).ToString('0.0', [Globalization.CultureInfo]::InvariantCulture))|$(([double]$st.median_peak_mb).ToString('0.0', [Globalization.CultureInfo]::InvariantCulture))"
+        $fmt = "$(([double]$st.median_seconds).ToString('0.00', [Globalization.CultureInfo]::InvariantCulture))|$(([double]$st.median_peak_mb).ToString('0.0', [Globalization.CultureInfo]::InvariantCulture))"
         if (@($st.seconds).Count -ne 1 -or @($st.peak_mb).Count -ne 1 -or $preDiagSamples[$st.step] -ne $fmt) { $samplesUnchanged = $false; break }
       }
     }

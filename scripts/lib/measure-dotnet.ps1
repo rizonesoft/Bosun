@@ -57,7 +57,7 @@ function Invoke-DotnetBuild([string]$Name, [string]$Expect, [bool]$Timed, [strin
   if ($Timed) {
     if (-not $results.Contains($Name)) { $results[$Name] = @() }
     $results[$Name] += , $result
-    "  $Name sample $($results[$Name].Count): $(Format-Number $result.Seconds) s, $(Format-Number $result.PeakMB) MB"
+    "  $Name sample $($results[$Name].Count): $(Format-Seconds $result.Seconds) s, $(Format-Number $result.PeakMB) MB"
   }
 }
 
@@ -274,7 +274,7 @@ try {
       $warmUsedNodesPerSample += , $sampleUsedNodes
       $warmUsedCompilerPerSample += , $sampleUsedCompiler
       $warmResults += , $warmSeen.result
-      "  one file changed, after a build sample $n/$Samples`: $(Format-Number $warmSeen.result.Seconds) s, $(Format-Number $warmSeen.result.PeakMB) MB; nodes left: $(Format-Used $sampleUsedNodes), the compiler server left: $(Format-Used $sampleUsedCompiler)"
+      "  one file changed, after a build sample $n/$Samples`: $(Format-Seconds $warmSeen.result.Seconds) s, $(Format-Number $warmSeen.result.PeakMB) MB; nodes left: $(Format-Used $sampleUsedNodes), the compiler server left: $(Format-Used $sampleUsedCompiler)"
     } finally {
       if ($warm) { $warm.Dispose(); $warm = $null }
       Remove-Item -LiteralPath $warmLog -Force -ErrorAction Ignore
@@ -285,7 +285,7 @@ try {
   $results['one file changed, after a build'] = $warmResults
   $warmMedSec = Get-Median @($warmResults | ForEach-Object Seconds)
   $warmMedMb = Get-Median @($warmResults | ForEach-Object PeakMB)
-  "  one file changed, after a build: $(Format-Number $warmMedSec) s, $(Format-Number $warmMedMb) MB; $($leftProcesses.Count) process(es) left, $(Format-Number $leftMb) MB; nodes left: $(Format-Used $usedNodes), the compiler server left: $(Format-Used $usedCompiler)"
+  "  one file changed, after a build: $(Format-Seconds $warmMedSec) s, $(Format-Number $warmMedMb) MB; $($leftProcesses.Count) process(es) left, $(Format-Number $leftMb) MB; nodes left: $(Format-Used $usedNodes), the compiler server left: $(Format-Used $usedCompiler)"
 } finally {
   foreach ($run in @($warm, $linger)) { if ($run) { $run.Dispose() } }
   foreach ($path in @($log, "$log.linger") + @($warmLogs)) { Remove-Item -LiteralPath $path -Force -ErrorAction Ignore }
@@ -428,5 +428,5 @@ Update-Data {
   $current
 } $baselineArg
 "stored '$Label' ($Decision) in $dataPath and rendered $docPath"
-foreach ($step in $entry['steps']) { "  $($step['step']): $(Format-Number $step['median_seconds']) s (spread $(Format-Number $step['spread_seconds']) s), $(Format-Number $step['median_peak_mb']) MB (spread $(Format-Number $step['spread_peak_mb']) MB)" }
+foreach ($step in $entry['steps']) { "  $($step['step']): $(Format-Seconds $step['median_seconds']) s (spread $(Format-Seconds $step['spread_seconds']) s), $(Format-Number $step['median_peak_mb']) MB (spread $(Format-Number $step['spread_peak_mb']) MB)" }
 if ($hasBaseline) { Write-ComparisonSummary (Get-BaselineComparison $script:lastSavedData $Baseline) }

@@ -101,6 +101,9 @@ function Write-Atomic([string]$Path, [string]$Text) {
 
 # The stored data, or an empty set when there is none yet. A file that cannot be read as this script's data is
 # refused, never overwritten: it may be the only copy of earlier measurements.
+function Test-NumericValue($value) {
+  $null -ne $value -and ($value -is [int] -or $value -is [long] -or $value -is [double] -or $value -is [decimal] -or $value -is [float])
+}
 function Read-Data {
   if (-not (Test-Path -LiteralPath $dataPath)) { return [ordered]@{ schema_version = 1; labels = @() } }
   try { $data = [IO.File]::ReadAllText($dataPath, $utf8) | ConvertFrom-Json -AsHashtable -DateKind String } catch {
@@ -110,15 +113,42 @@ function Read-Data {
     throw "$dataPath is not this script's data (it needs schema_version 1 and a labels list): fix or remove it, nothing was written"
   }
   $data['labels'] = @($data['labels'])
+  foreach ($entry in $data['labels']) {
+    if ($entry -isnot [Collections.IDictionary] -or [string]::IsNullOrWhiteSpace([string]$entry['label']) -or $entry['steps'] -isnot [array]) {
+      throw "$dataPath has an incomplete label entry: fix or remove it, nothing was written"
+    }
+    $lbl = [string]$entry['label']
+    foreach ($step in $entry['steps']) {
+      if ($step -isnot [Collections.IDictionary] -or [string]::IsNullOrWhiteSpace([string]$step['step'])) {
+        throw "$dataPath has an incomplete step (label '$lbl', missing 'step'): fix or remove it, nothing was written"
+      }
+      $stp = [string]$step['step']
+      foreach ($req in 'median_seconds', 'median_peak_mb') {
+        if (-not $step.Contains($req) -or -not (Test-NumericValue $step[$req])) {
+          throw "$dataPath has an incomplete step (label '$lbl', step '$stp', missing or invalid '$req'): fix or remove it, nothing was written"
+        }
+      }
+      foreach ($arr in 'seconds', 'peak_mb') {
+        if (-not $step.Contains($arr) -or $step[$arr] -isnot [array] -or $step[$arr].Count -eq 0 -or (@($step[$arr] | Where-Object { -not (Test-NumericValue $_) }).Count -gt 0)) {
+          throw "$dataPath has an incomplete step (label '$lbl', step '$stp', missing or invalid '$arr'): fix or remove it, nothing was written"
+        }
+      }
+    }
+  }
   $data
 }
 
 function Format-Number($value) { ([double]$value).ToString('0.0', [Globalization.CultureInfo]::InvariantCulture) }
-function Format-Signed([double]$value, [string]$unit) {
-  if ($value -gt 0) { "+$(Format-Number $value) $unit" }
-  elseif ($value -lt 0) { "-$(Format-Number ([Math]::Abs($value))) $unit" }
-  else { "0.0 $unit" }
+function Format-Seconds($value) { ([double]$value).ToString('0.00', [Globalization.CultureInfo]::InvariantCulture) }
+function Format-Signed([double]$value, [string]$unit, [string]$fmt = '0.0') {
+  $abs = ([Math]::Abs($value)).ToString($fmt, [Globalization.CultureInfo]::InvariantCulture)
+  if ($value -gt 0) { "+$abs $unit" }
+  elseif ($value -lt 0) { "-$abs $unit" }
+  else { "$([double]::Parse('0').ToString($fmt, [Globalization.CultureInfo]::InvariantCulture)) $unit" }
 }
+function Format-SignedSeconds([double]$value) { Format-Signed $value 's' '0.00' }
+function Format-SignedMb([double]$value) { Format-Signed $value 'MB' '0.0' }
+function Format-PsSingleQuote([string]$Text) { "'" + ($Text -replace "'", "''") + "'" }
 function Write-LiveLine([string]$Line) {
   [Console]::Out.WriteLine($Line)
   [Console]::Out.Flush()
@@ -244,7 +274,7 @@ function Write-ComparisonSummary($comparison) {
       if ($row['missing']) {
         "    $($row['step']): $($row['status'])"
       } else {
-        "    $($row['step']): time $(Format-Signed $row['delta_seconds'] 's') (spread $(Format-Number $row['cand_spread_seconds']) / $(Format-Number $row['base_spread_seconds']) s), memory $(Format-Signed $row['delta_peak_mb'] 'MB') (spread $(Format-Number $row['cand_spread_peak_mb']) / $(Format-Number $row['base_spread_peak_mb']) MB) [$($row['status'])]"
+        "    $($row['step']): time $(Format-SignedSeconds $row['delta_seconds']) (spread $(Format-Seconds $row['cand_spread_seconds']) / $(Format-Seconds $row['base_spread_seconds']) s), memory $(Format-SignedMb $row['delta_peak_mb']) (spread $(Format-Number $row['cand_spread_peak_mb']) / $(Format-Number $row['base_spread_peak_mb']) MB) [$($row['status'])]"
       }
     }
   }
@@ -306,11 +336,11 @@ function ConvertTo-Document($data, [string]$BaselineLabel = '') {
     $out.Add('| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) | Samples (s) | Samples (MB) |')
     $out.Add('| ---- | ------------: | ---------------: | --------------: | -----------------: | ----------- | ------------ |')
     foreach ($step in $entry['steps']) {
-      $samplesSec = @($step['seconds'] | ForEach-Object { Format-Number $_ }) -join ', '
+      $samplesSec = @($step['seconds'] | ForEach-Object { Format-Seconds $_ }) -join ', '
       $samplesMb = @($step['peak_mb'] | ForEach-Object { Format-Number $_ }) -join ', '
-      $spreadSec = Format-Number (Get-StepSpreadSeconds $step)
+      $spreadSec = Format-Seconds (Get-StepSpreadSeconds $step)
       $spreadMb = Format-Number (Get-StepSpreadPeakMb $step)
-      $out.Add("| $($step['step']) | $(Format-Number $step['median_seconds']) | $(Format-Number $step['median_peak_mb']) | $spreadSec | $spreadMb | $samplesSec | $samplesMb |")
+      $out.Add("| $($step['step']) | $(Format-Seconds $step['median_seconds']) | $(Format-Number $step['median_peak_mb']) | $spreadSec | $spreadMb | $samplesSec | $samplesMb |")
     }
   }
   if ($BaselineLabel) {
@@ -338,9 +368,9 @@ function ConvertTo-Document($data, [string]$BaselineLabel = '') {
           if ($row['missing']) {
             $out.Add("| $($row['step']) | n/a | n/a | n/a | n/a | $($row['status']) |")
           } else {
-            $tSpread = "$(Format-Number $row['cand_spread_seconds']) / $(Format-Number $row['base_spread_seconds'])"
+            $tSpread = "$(Format-Seconds $row['cand_spread_seconds']) / $(Format-Seconds $row['base_spread_seconds'])"
             $mSpread = "$(Format-Number $row['cand_spread_peak_mb']) / $(Format-Number $row['base_spread_peak_mb'])"
-            $out.Add("| $($row['step']) | $(Format-Signed $row['delta_seconds'] 's') | $tSpread | $(Format-Signed $row['delta_peak_mb'] 'MB') | $mSpread | $($row['status']) |")
+            $out.Add("| $($row['step']) | $(Format-SignedSeconds $row['delta_seconds']) | $tSpread | $(Format-SignedMb $row['delta_peak_mb']) | $mSpread | $($row['status']) |")
           }
         }
       }
@@ -351,8 +381,12 @@ function ConvertTo-Document($data, [string]$BaselineLabel = '') {
 
 function Write-Document($data, [string]$BaselineLabel = '') {
   try { Write-Atomic $docPath (ConvertTo-Document $data $BaselineLabel) } catch {
+    $retry = 'pwsh scripts/measure-build.ps1 -RenderOnly'
+    $defaultOut = [IO.Path]::GetFullPath((Join-Path $repo 'docs'))
+    if ([IO.Path]::GetFullPath($OutDir) -ine $defaultOut) { $retry += " -OutDir $(Format-PsSingleQuote $OutDir)" }
+    if ($BaselineLabel) { $retry += " -Baseline $BaselineLabel" }
     "could not write ${docPath}: $($_.Exception.Message)"
-    "the measurements are stored in ${dataPath}: run 'pwsh scripts/measure-build.ps1 -RenderOnly' once that is fixed"
+    "the measurements are stored in ${dataPath}: run $retry once that is fixed"
     exit 1
   }
 }
@@ -515,7 +549,7 @@ function Invoke-Build([string]$Name, [string[]]$Extra, [bool]$WantWork, [bool]$T
   if ($Timed) {
     if (-not $results.Contains($Name)) { $results[$Name] = @() }
     $results[$Name] += , $result
-    "  $Name sample $($results[$Name].Count): $(Format-Number $result.Seconds) s, $(Format-Number $result.PeakMB) MB"
+    "  $Name sample $($results[$Name].Count): $(Format-Seconds $result.Seconds) s, $(Format-Number $result.PeakMB) MB"
   }
 }
 
@@ -538,10 +572,10 @@ foreach ($n in 1..$Samples) {
 }
 foreach ($n in 1..$Samples) { Invoke-Build 'fresh build' @('-Fresh') $true $true "fresh build sample $n/$Samples" }
 if ($Tests) {
-  # Single-run exception: the Python suite runs once regardless of -Samples (spread is 0.0).
+  # Single-run exception: the Python suite runs once regardless of -Samples (spread is 0.00 s / 0.0 MB).
   $result = Invoke-Step 'python test suite' 'python' @((Join-Path $PSScriptRoot 'run-tests.py')) 'python test suite'
   $results['python test suite'] = @($result)
-  "  python test suite: $(Format-Number $result.Seconds) s, $(Format-Number $result.PeakMB) MB"
+  "  python test suite: $(Format-Seconds $result.Seconds) s, $(Format-Number $result.PeakMB) MB"
 }
 Remove-Item -LiteralPath $log -Force -ErrorAction Ignore
 
@@ -612,7 +646,7 @@ Update-Data {
   $current
 } $baselineArg
 "stored '$Label' ($Decision) in $dataPath and rendered $docPath"
-foreach ($step in $entry['steps']) { "  $($step['step']): $(Format-Number $step['median_seconds']) s (spread $(Format-Number $step['spread_seconds']) s), $(Format-Number $step['median_peak_mb']) MB (spread $(Format-Number $step['spread_peak_mb']) MB)" }
+foreach ($step in $entry['steps']) { "  $($step['step']): $(Format-Seconds $step['median_seconds']) s (spread $(Format-Seconds $step['spread_seconds']) s), $(Format-Number $step['median_peak_mb']) MB (spread $(Format-Number $step['spread_peak_mb']) MB)" }
 if ($hasBaseline) { Write-ComparisonSummary (Get-BaselineComparison $script:lastSavedData $Baseline) }
 exit 0
 } finally { Exit-GateMark $gateMark }

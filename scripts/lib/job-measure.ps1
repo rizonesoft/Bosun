@@ -93,6 +93,8 @@ namespace Bosun {
     [DllImport("kernel32", SetLastError = true)]
     static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
     [DllImport("kernel32", SetLastError = true)]
+    static extern bool GetProcessTimes(IntPtr process, out long creationTime, out long exitTime, out long kernelTime, out long userTime);
+    [DllImport("kernel32", SetLastError = true)]
     static extern bool TerminateProcess(IntPtr process, uint exitCode);
     [DllImport("kernel32", SetLastError = true)]
     static extern bool CloseHandle(IntPtr handle);
@@ -248,7 +250,16 @@ namespace Bosun {
           if (!GetExitCodeProcess(process.hProcess, out code)) throw Fail("could not read the command's exit code", commandLine);
           result.ExitCode = unchecked((int)code);
         }
-        result.Seconds = Math.Round(watch.Elapsed.TotalSeconds, 2);
+        if (!timedOut) {
+          long creation, exitTime, kernel, user;
+          if (GetProcessTimes(process.hProcess, out creation, out exitTime, out kernel, out user) && exitTime >= creation) {
+            result.Seconds = Math.Round(TimeSpan.FromTicks(exitTime - creation).TotalSeconds, 2);
+          } else {
+            result.Seconds = Math.Round(watch.Elapsed.TotalSeconds, 2);
+          }
+        } else {
+          result.Seconds = Math.Round(watch.Elapsed.TotalSeconds, 2);
+        }
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION used;
         if (!QueryInformationJobObject(job, JobObjectExtendedLimitInformation, out used, Marshal.SizeOf(typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION)), IntPtr.Zero))
           throw Fail("could not read the job's peak memory", commandLine);
