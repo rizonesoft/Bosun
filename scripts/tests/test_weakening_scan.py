@@ -1025,6 +1025,75 @@ class BatchAndLines(Repo):
         self.assertIn("    + L4: d = 40  # noqa: F841", text)
         self.assertNotIn("    - L1: a = 1", text)
 
+    def test_completion_gap_regressions(self):
+        # Gap 1: replacing quotes around a multiline string containing a directive on unchanged line 2 still shows line 2.
+        self.write("scripts/unquote.py", 'X = """\n# noqa: F841\n"""\n')
+        b1 = self.commit("multiline string")
+        self.write("scripts/unquote.py", "X = 1\n# noqa: F841\nY = 2\n")
+        h1 = self.commit("activate directive")
+        code, text = self.run_scan("--base", b1, "--head", h1)
+        self.assertEqual(code, 1, text)
+        self.assertIn("warning-relaxed scripts/unquote.py:L2", text)
+        self.assertIn("    + L2: # noqa: F841", text)
+
+        # Gap 2: header-like source `++ value` (diff line `+++ value`) inside a hunk must not invent a path or shift lines.
+        self.write("scripts/plus.py", "value = 1\n")
+        b2 = self.commit("plus base")
+        self.write("scripts/plus.py", "value = 1\n++ value\nx = 2  # noqa: F841\n")
+        h2 = self.commit("add ++ value and noqa")
+        code, text = self.run_scan("--base", b2, "--head", h2)
+        self.assertEqual(code, 1, text)
+        self.assertIn("warning-relaxed scripts/plus.py:L3", text)
+        self.assertIn("    + L3: x = 2  # noqa: F841", text)
+        self.assertNotIn(" value:", text)
+
+        # Gap 3: a physical source line containing a form feed (`\x0c`) stays intact and renders `\x0c` visibly.
+        self.write("scripts/ff.py", "x = 1\n")
+        b3 = self.commit("ff base")
+        self.write("scripts/ff.py", "x = 1  # noqa \x0ckeep this\n")
+        h3 = self.commit("ff comment")
+        code, text = self.run_scan("--base", b3, "--head", h3)
+        self.assertEqual(code, 1, text)
+        self.assertIn("\\x0ckeep this", text)
+        self.assertNotIn("\x0c", text)
+
+        # Gap 4: Git-quoted filenames (e.g. a tab in a WSL/POSIX filename) unquote to one key in committed and untracked scans.
+        quoted_diff = (
+            'diff --git "a/scripts/tab\\tname.py" "b/scripts/tab\\tname.py"\n'
+            '--- "a/scripts/tab\\tname.py"\n'
+            '+++ "b/scripts/tab\\tname.py"\n'
+            '@@ -1 +1 @@\n'
+            '-x = 1\n'
+            '+x = 1  # noqa: F841\n'
+        )
+        parsed = scan.parse_diff(quoted_diff)
+        self.assertEqual(list(parsed.keys()), ["scripts/tab\tname.py"])
+        if os.name != "nt":
+            tab_path = "scripts/tab\tfile.py"
+            self.write(tab_path, "x = 1\n")
+            bt = self.commit("tab base")
+            self.write(tab_path, "x = 1  # noqa: F841\n")
+            ht = self.commit("tab edit")
+            code, text = self.run_scan("--base", bt, "--head", ht)
+            self.assertEqual(code, 1, text)
+            self.assertIn("    + L1: x = 1  # noqa: F841", text)
+            untracked_tab = "scripts/untracked\ttab.py"
+            self.write(untracked_tab, "x = 1  # noqa: F841\n")
+            code, text = self.run_scan("--base", ht)
+            self.assertEqual(code, 0, text)
+            self.assertIn("    + L1: x = 1  # noqa: F841", text.split("not committed yet:")[1])
+            (self.root / untracked_tab).unlink()
+
+        # Gap 5: Unicode directional formatting control U+202E is rendered visibly as `\u202e`.
+        self.write("scripts/bidi.py", "x = 1\n")
+        b5 = self.commit("bidi base")
+        self.write("scripts/bidi.py", "x = 1  # noqa \u202ereversed\n")
+        h5 = self.commit("bidi edit")
+        code, text = self.run_scan("--base", b5, "--head", h5)
+        self.assertEqual(code, 1, text)
+        self.assertNotIn("\u202e", text)
+        self.assertIn("\\u202ereversed", text)
+
 
 if __name__ == "__main__":
     unittest.main()

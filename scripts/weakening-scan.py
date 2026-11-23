@@ -62,6 +62,7 @@ import re
 import subprocess
 import sys
 import tokenize
+import unicodedata
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -189,14 +190,68 @@ def run_git(root, arguments):
     return out
 
 
+def split_lf(text):
+    """Split on LF only (matching git's physical line boundaries, never splitting on form feed or vertical tab)."""
+    if not text:
+        return []
+    lines = text.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    return lines
+
+
+def unquote_git_path(name):
+    """Decode a git C-quoted path (e.g. `"a/foo\\tbar.py"`), returning the raw path string."""
+    if len(name) >= 2 and name[0] == '"' and name[-1] == '"':
+        inner = name[1:-1]
+        raw = bytearray()
+        escapes = {"a": 7, "b": 8, "f": 12, "n": 10, "r": 13, "t": 9, "v": 11, "\\": 92, '"': 34}
+        i = 0
+        while i < len(inner):
+            ch = inner[i]
+            if ch == "\\" and i + 1 < len(inner):
+                nxt = inner[i + 1]
+                if nxt in escapes:
+                    raw.append(escapes[nxt])
+                    i += 2
+                    continue
+                if "0" <= nxt <= "7" and i + 3 < len(inner) and all("0" <= c <= "7" for c in inner[i + 1:i + 4]):
+                    raw.append(int(inner[i + 1:i + 4], 8))
+                    i += 4
+                    continue
+            raw.extend(ch.encode("utf-8"))
+            i += 1
+        return raw.decode("utf-8", errors="replace")
+    return name
+
+
 def parse_diff(text):
     """{path: Change} from `git diff -U0 --no-renames` output."""
-    changes, current, hunk, old_line, new_line, created = {}, None, None, 0, 0, False
-    for line in text.splitlines():
+    changes, current, hunk, old_line, new_line, old_rem, new_rem, created = {}, None, None, 0, 0, 0, 0, False
+    for line in split_lf(text):
+        if hunk is not None and (old_rem > 0 or new_rem > 0):
+            if line.startswith("-") and old_rem > 0:
+                entry = (old_line, line[1:])
+                assert current is not None
+                current.removed.append(entry)
+                hunk.removed.append(entry)
+                old_line += 1
+                old_rem -= 1
+                continue
+            if line.startswith("+") and new_rem > 0:
+                entry = (new_line, line[1:])
+                assert current is not None
+                current.added.append(entry)
+                hunk.added.append(entry)
+                new_line += 1
+                new_rem -= 1
+                continue
+            if line.startswith("\\ "):
+                continue
         if line.startswith("diff --git "):
-            current, hunk, created = None, None, False
+            current, hunk, old_rem, new_rem, created = None, None, 0, 0, False
         elif line.startswith("+++ ") or line.startswith("--- "):
-            name = line[4:].strip()
+            name = unquote_git_path(line[4:].strip())
             if name != "/dev/null":
                 path = name[2:] if name[:2] in ("a/", "b/") else name
                 current = changes.setdefault(path, Change(path))
@@ -212,22 +267,11 @@ def parse_diff(text):
             old_line, new_line = int(found[1]), int(found[3])
             old_count = int(found[2]) if found[2] is not None else 1
             new_count = int(found[4]) if found[4] is not None else 1
+            old_rem, new_rem = old_count, new_count
             hunk = Hunk(old_line, old_count, new_line, new_count)
             current.hunks.append(hunk)
             if found[4] == "0":  # a hunk that only deletes: the new file's line `new_line` is the one before the gap
                 current.gaps.add(new_line)
-        elif current is not None and line.startswith("-"):
-            entry = (old_line, line[1:])
-            current.removed.append(entry)
-            if hunk is not None:
-                hunk.removed.append(entry)
-            old_line += 1
-        elif current is not None and line.startswith("+"):
-            entry = (new_line, line[1:])
-            current.added.append(entry)
-            if hunk is not None:
-                hunk.added.append(entry)
-            new_line += 1
     return changes
 
 
@@ -459,7 +503,10 @@ def signal_context(change, *, old_line=None, new_line=None, new_span=None):
         idx = next((i for i, (n, _) in enumerate(h.added) if n >= new_line), 0) if new_line is not None else 0
         after = h.added[idx:idx + 3] or h.added[:3]
         before = h.removed[idx:idx + 3] if idx < len(h.removed) else h.removed[-3:]
-        if not after and new_line and change.new and 1 <= new_line <= len(change.new):
+        if new_span is None and new_line and change.new and 1 <= new_line <= len(change.new):
+            if not any(n == new_line for n, _ in after):
+                after = [(new_line, change.new[new_line - 1])] + [item for item in after if item[0] != new_line][:2]
+        elif not after and new_line and change.new and 1 <= new_line <= len(change.new):
             after = [(new_line, change.new[new_line - 1])]
     return before, after
 
@@ -654,7 +701,7 @@ class Text(list):
     (the completion review of D00 T07 §2: a config edit to its last newline alone was not seen)."""
 
     def __init__(self, raw):
-        super().__init__(raw.splitlines())
+        super().__init__(split_lf(raw))
         self.raw = raw
 
 
@@ -769,7 +816,7 @@ def uncommitted(root, reader=None):
     for path, change in unstaged.items():
         change.old = None if change.created else blobs[("", path)]
         change.new = None if change.deleted else working_text(root, path)
-    for path in run_git(root, ["ls-files", "--others", "--exclude-standard"]).splitlines():
+    for path in [p for p in run_git(root, ["ls-files", "--others", "--exclude-standard", "-z"]).split("\x00") if p]:
         lines = working_text(root, path)
         change = unstaged.setdefault(path, Change(path))
         change.created, change.new, change.added = True, lines, list(enumerate(lines, 1))
@@ -842,7 +889,8 @@ def default_base(root):
 
 
 def sanitize_excerpt(text):
-    """Render ASCII/C1 control characters visibly so source text cannot emit terminal escape sequences."""
+    """Render ASCII/C1 control characters and Unicode format/bidi controls visibly so source text cannot emit
+    terminal escape sequences or alter visual reading order."""
     out = []
     for ch in text:
         code = ord(ch)
@@ -850,6 +898,8 @@ def sanitize_excerpt(text):
             out.append("\t")
         elif code < 0x20 or code == 0x7F or 0x80 <= code <= 0x9F:
             out.append(f"\\x{code:02x}")
+        elif unicodedata.category(ch) == "Cf":
+            out.append(f"\\u{code:04x}")
         else:
             out.append(ch)
     return "".join(out)
