@@ -36,7 +36,7 @@ title: "TODO-07 -- Kit follow-ups"
 | 3 | §3 | Test fixtures in the scratch folder | -- | [x] |
 | 4 | §4 | check-all keeps a log and says its waits and SDK | -- | [x] |
 | 5 | §5 | Weakening scan reads blobs in one batch and shows lines | -- | [x] |
-| 6 | §6 | Clone setup and pre-commit say what they did | -- | [ ] |
+| 6 | §6 | Clone setup and pre-commit say what they did | -- | [x] |
 | 7 | §7 | Build measurement compares against a baseline | -- | [ ] |
 | 8 | §8 | Build script stops configuring on every run | §7 | [ ] |
 | 9 | §9 | One documented .NET test command with progress | -- | [ ] |
@@ -289,9 +289,12 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 22 and 23,
 - [x] Print `pre-commit: checking the plan...` to stderr before the plan check in `scripts/hooks/pre-commit` and its measured elapsed seconds (`pre-commit: plan check passed in <N.N> s` / `failed in <N.N> s`) after; measure a plan commit in a scratch clone with `plan --check` alone vs `validate` + `plan --check` and replace the comment's unmeasured saving with the measured one. Done when: `scripts/tests/test_pre_commit.py` holds a stand-in `todo-graph.py` open to observe `pre-commit: checking the plan...` live before releasing it, verifies the final status and measured elapsed time on both pass and failure, and the comment in `scripts/hooks/pre-commit` cites the measured numbers.
 - [x] Add `-OverlayUpdates off|on` to `scripts/setup-clone.ps1` using a separate `.private` `--local` setting `bosun.overlayAutoUpdate` (`false` when `off`, `true` when `on`) read by `scripts/hooks/post-merge` (keeping `bosun.overlay = true` intact so `scripts/sync.ps1`, `scripts/overlay_rules_hook.py`, and ordinary `setup-clone.ps1` runs preserve it), reading back after each write and keeping every local branch, stash, and ignored owner file untouched (base line 209). Done when: `tests/setup_clone_test.ps1` tests against a local upstream with a pending commit proving `off` survives another `setup-clone.ps1` run and leaves `.private` HEAD unchanged after `post-merge`, `on` lets the next `post-merge` advance `.private`, `bosun.overlay` plus branches/stashes/ignored files survive both, and invalid/missing `.private` or invalid `-OverlayUpdates` value is refused. Cheaper substitute: the manual undo line, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
 - [x] Add `-CheckPrePush` to `scripts/setup-clone.ps1` (read-only: zero checkout mutations on pass or refusal) to verify effective `core.hooksPath`, tracked executable `scripts/hooks/pre-push` (index `100755` and disk execute bit on Linux), `scripts/leak-scan.ps1`, `pwsh` on `PATH`, and runnable `gitleaks` (`gitleaks version` exit 0) together in one command on Windows and Linux/WSL with platform-appropriate install guidance (never `winget` on Linux), and update `scripts/setup-clone.ps1` help, `AGENTS.md`, and `README.md` with `-Undo`, `-OverlayUpdates off|on`, `-CheckPrePush`, and `-Repo` (findings base line 213, from the completion review of `D00 T05 §4`). Done when: `tests/setup_clone_test.ps1` exercises every `-CheckPrePush` refusal (wrong effective `core.hooksPath`, missing/untracked `pre-push`, non-executable index bit, missing `leak-scan.ps1`, missing `pwsh` on `PATH`, missing or failing `gitleaks`), proves zero mutation on pass and refusal, and reads one pass when all are present; and `tests/linux/setup_clone_wsl_test.ps1` (written here and registered in `.github/workflows/build.yml` under the `linux` job) does the same on Linux/WSL including the disk execute bit (**corrected 2026-11-22, the completion review of `D00 T06 §6`**). Cheaper substitute: checking the hook alone, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
-- [ ] Commit: `setup: the earlier hooks path is kept, and pre-commit says its check (D00 T07 §6)`
+- [x] Commit: `setup: the earlier hooks path is kept, and pre-commit says its check (D00 T07 §6)`
 
 **Test checkpoint:** `pwsh tests/setup_clone_test.ps1` and `python scripts/run-tests.py test_pre_commit` exit 0, and with the stored key removed the second-run undo test fails. On WSL, `wsl -d Ubuntu --cd . pwsh -NoProfile -File tests/linux/setup_clone_wsl_test.ps1` exits 0, which it cannot before the test is written (**corrected 2026-11-22, the completion review of `D00 T06 §6`**).
+
+> **Verified:** 2026-11-23 | §6 | 6a30f6db89a7b6b367c4a81142e6a464fda3cd44
+> **Review:** `docs/reviews/d00-t07-s6.json`
 
 ## 7. Build measurement compares against a baseline
 

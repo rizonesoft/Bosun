@@ -75,7 +75,7 @@ Sections: 81 | Checklist items: 630
 | [x]    | D00 T07 §3  | Test fixtures in the scratch folder                                                    | none        | 5     |
 | [x]    | D00 T07 §4  | check-all keeps a log and says its waits and SDK                                       | none        | 4     |
 | [x]    | D00 T07 §5  | Weakening scan reads blobs in one batch and shows lines                                | none        | 3     |
-| [ ]    | D00 T07 §6  | Clone setup and pre-commit say what they did                                           | none        | 5     |
+| [x]    | D00 T07 §6  | Clone setup and pre-commit say what they did                                           | none        | 5     |
 | [ ]    | D00 T07 §7  | Build measurement compares against a baseline                                          | none        | 5     |
 | [ ]    | D00 T07 §8  | Build script stops configuring on every run                                            | none        | 3     |
 | [ ]    | D00 T07 §9  | One documented .NET test command with progress                                         | none        | 3     |
@@ -254,6 +254,6 @@ Sections: 6 | Checklist items: 30
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 6     |
 
-Progress: 120/199 verified sections, 56 ready to run now.
+Progress: 121/199 verified sections, 55 ready to run now.
 
-Checklist: 1113/1472 items completed (includes Commit items).
+Checklist: 1114/1472 items completed (includes Commit items).

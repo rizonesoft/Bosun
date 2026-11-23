@@ -1,0 +1,86 @@
+{
+  "ref": "D00 T07 \u00a76",
+  "title": "Clone setup and pre-commit say what they did",
+  "implementation_sha": "6a30f6db89a7b6b367c4a81142e6a464fda3cd44",
+  "date": "2026-11-23",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T07-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T07-s6.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "build.yml green at 6a30f6d (https://github.com/rizonesoft/Bosun/actions/runs/45094147854); plan.yml green at 6a30f6d (https://github.com/rizonesoft/Bosun/actions/runs/45094147868); pwsh tests/setup_clone_test.ps1 (41/41 ok); python scripts/run-tests.py test_pre_commit (12/12 ok); wsl pwsh tests/linux/setup_clone_wsl_test.ps1 (11/11 ok); pyright Windows & Linux 0 errors"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T07-s6.md",
+    "verdict": "completed",
+    "candidate": "44d3773ec7214e4be6f0a2f471610823d3b9b409",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "cap_outcome": "Round 2 P3 findings (literal Git quoting, preview-before-write) fixed in 44d3773",
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T07-s6.md",
+    "candidate": "4fbf00b365f807a1c13c501616d2166432804a0a",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "4fbf00b365f807a1c13c501616d2166432804a0a",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "recurrence_cap": 3,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
