@@ -968,6 +968,39 @@ class BatchAndLines(Repo):
         untracked_section = tail.split("error-swallowed scripts/untracked.py:")[1]
         self.assertNotIn("    - L", untracked_section)
 
+    def test_round1_regressions_handler_span_control_chars_and_symlinks(self):
+        # R1 F1: an edit inside `try:` above `except ValueError:` must not steal the excerpt from the emptied handler body.
+        six = "try:\n    old_call()\nexcept ValueError:\n    # comment 1\n    # comment 2\n    recover()\n"
+        self.write("scripts/handler.py", six)
+        before = self.commit("handler base")
+        self.write("scripts/handler.py", "try:\n    new_call()\nexcept ValueError:\n    # comment 1\n    # comment 2\n    pass\n")
+        head = self.commit("edit try and empty except")
+        code, text = self.run_scan("--base", before, "--head", head)
+        self.assertEqual(code, 1, text)
+        self.assertIn("    - L6:     recover()", text)
+        self.assertIn("    + L6:     pass", text)
+        self.assertNotIn("old_call()", text)
+        self.assertNotIn("new_call()", text)
+
+        # R1 F2: terminal control characters (e.g. ESC [2K) are rendered visibly as \x1b, never raw ESC bytes.
+        self.write("scripts/ansi.py", "x = 1\n")
+        b_ansi = self.commit("ansi base")
+        self.write("scripts/ansi.py", "x = 1  # noqa \x1b[2K\n")
+        h_ansi = self.commit("ansi edit")
+        code, text = self.run_scan("--base", b_ansi, "--head", h_ansi)
+        self.assertEqual(code, 1, text)
+        self.assertNotIn("\x1b", text)
+        self.assertIn("\\x1b[2K", text)
+
+        # R1 F3: working_text reads a symlink's target path without opening the referenced external file.
+        ext = self.root / "scripts" / "link_probe.py"
+        ext.write_text("SECRET_SHOULD_NOT_BE_READ\n", encoding="utf-8")
+        with mock.patch.object(Path, "is_symlink", return_value=True), \
+             mock.patch.object(os, "readlink", return_value="/external/target.py"):
+            got = scan.working_text(self.root, "scripts/link_probe.py")
+        self.assertEqual(list(got), ["/external/target.py"])
+        self.assertNotIn("SECRET_SHOULD_NOT_BE_READ", got.raw)
+
 
 if __name__ == "__main__":
     unittest.main()

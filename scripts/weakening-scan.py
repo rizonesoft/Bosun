@@ -57,6 +57,7 @@ import ast
 from collections import Counter, defaultdict
 import hashlib
 import io
+import os
 import re
 import subprocess
 import sys
@@ -328,11 +329,13 @@ def enforces(text, token):
 
 
 def swallowed(lines, added, gaps=(), path=""):
-    """The lines of the handlers in a file's new text that swallow an error and that this change touched: an `except`
-    whose whole body is `pass`, and a `catch` whose braces hold nothing, on one line or over several. A change
-    touches a handler when it added one of its lines, or deleted lines from inside it (`gaps`: the new line numbers
-    after which a deletion left nothing), which is how a body is emptied without a line being added."""
-    found = set()
+    """{header_line: (first_line, last_line)} of the handlers in a file's new text that swallow an error and that this
+    change touched: an `except` whose whole body is `pass`, and a `catch` whose braces hold nothing, on one line or
+    over several. A change touches a handler when it added one of its lines, or deleted lines from inside it (`gaps`:
+    the new line numbers after which a deletion left nothing), which is how a body is emptied without a line being
+    added. Returning the handler span lets excerpt selection pick the hunk inside the handler rather than a closer
+    unrelated edit above it."""
+    found = {}
     if not lines:
         return found
 
@@ -343,7 +346,7 @@ def swallowed(lines, added, gaps=(), path=""):
         number = index + 1
         if EXCEPT_INLINE.match(text):
             if number in added:
-                found.add(number)
+                found[number] = (number, number)
             continue
         if EXCEPT.match(text):
             indent = len(text) - len(text.lstrip())
@@ -356,7 +359,7 @@ def swallowed(lines, added, gaps=(), path=""):
                     break
                 body.append(below + 1)
             if len(body) == 1 and PASS.match(lines[body[0] - 1]) and touched(number, body[0]):
-                found.add(number)
+                found[number] = (number, body[0])
     # A catch whose braces hold only a comment is as empty as one that holds nothing: the comments go first, each
     # replaced by spaces so every position still falls on its own line.
     comment = HASH_COMMENT if path.lower().endswith((".ps1", ".psm1")) else SLASH_COMMENT
@@ -369,7 +372,7 @@ def swallowed(lines, added, gaps=(), path=""):
         first = next(i for i in range(len(lines)) if starts[i + 1] > match.start()) + 1
         last = next(i for i in range(len(lines)) if starts[i + 1] >= match.end()) + 1
         if touched(first, last):
-            found.add(first)
+            found[first] = (first, last)
     return found
 
 
@@ -411,18 +414,24 @@ def cases(change, side):
     return found
 
 
-def hunk_for(change, *, old_line=None, new_line=None):
-    """Find the diff hunk that produced `old_line` or `new_line`, keeping distant edits in one file separate."""
+def hunk_for(change, *, old_line=None, new_line=None, new_span=None):
+    """Find the diff hunk that produced `old_line`, `new_line`, or `new_span`, keeping distant edits separate."""
     if old_line is not None:
         for h in change.hunks:
             if any(n == old_line for n, _ in h.removed):
+                return h
+    if new_span is not None:
+        first, last = new_span
+        for h in change.hunks:
+            if any(first <= n <= last for n, _ in h.added):
+                return h
+            if h.new_count == 0 and first <= h.new_start < last:
                 return h
     if new_line is not None:
         for h in change.hunks:
             if any(n == new_line for n, _ in h.added):
                 return h
-        # For a handler or directive whose own line was unchanged while lines immediately below it were deleted or
-        # edited (e.g. emptied except/catch body, or unquoted multiline string), find the closest hunk covering it.
+        # For a directive whose own line was unchanged while quotes around it were removed, find the closest hunk.
         best, best_dist = None, None
         for h in change.hunks:
             lo = h.new_start
@@ -435,9 +444,9 @@ def hunk_for(change, *, old_line=None, new_line=None):
     return None
 
 
-def signal_context(change, *, old_line=None, new_line=None):
+def signal_context(change, *, old_line=None, new_line=None, new_span=None):
     """Up to three before and three after `(line_number, text)` pairs for a signal at `old_line` or `new_line`."""
-    h = hunk_for(change, old_line=old_line, new_line=new_line)
+    h = hunk_for(change, old_line=old_line, new_line=new_line, new_span=new_span)
     if h is None:
         before = [(old_line, change.old[old_line - 1])] if old_line and change.old and 1 <= old_line <= len(change.old) else []
         after = [(new_line, change.new[new_line - 1])] if new_line and change.new and 1 <= new_line <= len(change.new) else []
@@ -615,8 +624,9 @@ def scan(changes):
                 before, after = signal_context(change, new_line=number)
                 signals.append(Signal("warning-relaxed", path, line_id(change.new, number), before=before, after=after))
         # A handler that swallows, wherever the edit was: on its own line, or in the body under a line left alone.
-        for number in sorted(swallowed(change.new, {number for number, _ in change.added}, change.gaps, path)):
-            before, after = signal_context(change, new_line=number)
+        swallowed_spans = swallowed(change.new, {number for number, _ in change.added}, change.gaps, path)
+        for number in sorted(swallowed_spans):
+            before, after = signal_context(change, new_line=number, new_span=swallowed_spans[number])
             signals.append(Signal("error-swallowed", path, line_id(change.new, number), before=before, after=after))
         for number, text in change.added:
             if SUPPRESS.search(text):
@@ -725,8 +735,12 @@ def committed(root, base, head, reader=None):
 
 
 def working_text(root, path):
+    target = Path(root) / path
     try:
-        return Text((Path(root) / path).read_text(encoding="utf-8", errors="replace"))
+        # Match git: a symlink stores its target path, never the referenced file's contents.
+        if target.is_symlink():
+            return Text(os.readlink(target))
+        return Text(target.read_text(encoding="utf-8", errors="replace"))
     except OSError as exc:
         raise CannotRead(f"{path} can't be read: {exc}") from None
 
@@ -827,11 +841,25 @@ def default_base(root):
     return out.strip()
 
 
+def sanitize_excerpt(text):
+    """Render ASCII/C1 control characters visibly so source text cannot emit terminal escape sequences."""
+    out = []
+    for ch in text:
+        code = ord(ch)
+        if ch == "\t":
+            out.append("\t")
+        elif code < 0x20 or code == 0x7F or 0x80 <= code <= 0x9F:
+            out.append(f"\\x{code:02x}")
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
 def print_signal_lines(signal):
     for number, text in signal.before[:3]:
-        print(f"    - L{number}: {text}")
+        print(f"    - L{number}: {sanitize_excerpt(text)}")
     for number, text in signal.after[:3]:
-        print(f"    + L{number}: {text}")
+        print(f"    + L{number}: {sanitize_excerpt(text)}")
 
 
 def main(argv=None, root=ROOT):
