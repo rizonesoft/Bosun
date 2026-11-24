@@ -33,6 +33,25 @@ static void slots() {
     CHECK(dm::slot_admits(0, 0, 6144));
     CHECK(!dm::slot_admits(1, 6143, 6144));
     CHECK(dm::slot_admits(1, 6144, 6144));
+    // --or-skip: the floor holds for slot 0 too.
+    CHECK(!dm::slot_admits(0, 5119, 5120, true));
+    CHECK(dm::slot_admits(0, 5120, 5120, true));
+    // A job passes through only in a namespace it already holds; a marker without any, an older shim's, always passes.
+    CHECK(!dm::passes_through("", "", "Bosun"));
+    CHECK(dm::passes_through("0", "", "Bosun.VM"));
+    CHECK(dm::passes_through("0", "Bosun", "Bosun"));
+    CHECK(!dm::passes_through("0", "Bosun", "Bosun.VM"));
+    CHECK(!dm::passes_through("0", "Bosun.VM", "Bosun"));
+    CHECK(dm::passes_through("0", "Bosun;Bosun.VM", "Bosun"));
+    // --or-skip passes only where the place is really held: not on an older marker, nor on slot -1's.
+    CHECK(!dm::passes_through("0", "", "Bosun", true));
+    CHECK(!dm::passes_through("-1", "", "Bosun", true));
+    CHECK(dm::passes_through("-1", "Other", "Bosun"));
+    CHECK(!dm::passes_through("-1", "Other", "Bosun", true));
+    CHECK(dm::passes_through("0", "Bosun", "Bosun", true));
+    CHECK(!dm::ns_ok("A;B"));
+    CHECK(!dm::ns_ok(""));
+    CHECK(dm::ns_ok("Bosun.VM"));
 }
 
 static void write_budget() {

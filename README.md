@@ -57,6 +57,8 @@ Sessions and editors stay open as normal. Only commands wrapped in `bosun run` q
 - The first slot always admits a job. The second needs 6 GB available on Windows, and in WSL also 3 GB available inside the VM.
 - After 15 minutes a waiting job starts anyway, with a warning.
 - A crashed job frees its slot immediately.
+- A job that must not start without its place, such as one that starts a virtual machine, takes `--or-skip`: after `--max-wait` it exits 75 and starts nothing, and the Windows memory floor (`--min-avail-mb`) holds for the first slot too.
+- `--ns <name>` is a queue of its own. A job already inside one queue still takes its place in another.
 
 ## How do I change the limits?
 

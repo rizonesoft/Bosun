@@ -7,6 +7,7 @@ Notable changes to Bosun are recorded here. The format follows [Keep a Changelog
 ### Added
 
 - `bosun run`: a build queue shared by Windows and WSL, with memory-gated slots.
+- `bosun run --or-skip`: exit 75 instead of starting without a place or the memory floor. A job inside one `--ns` queue now takes its place in another.
 - `bosun status`, and `bosun report` over the logged memory data.
 - The login logger on Windows, and the `bosun-log` user service in WSL.
 - `bosun run` write budget: a job and everything it starts may write at most 100 GB (`--max-write-gb`, `BOSUN_MAX_WRITE_GB`), and one over it is stopped with exit 74. In WSL a job runs in its own systemd scope, so what it leaves behind ends with it.

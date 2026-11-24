@@ -47,6 +47,8 @@ env_limit() {
 args=()
 MAX_WAIT=""
 MIN_GUEST_MB=""
+OR_SKIP=""
+NS="Bosun"
 v="$(env_limit BOSUN_SLOTS 1 64)" && args+=(--slots "$v")
 v="$(env_limit BOSUN_MIN_AVAIL_MB 0 1099511627776)" && args+=(--min-avail-mb "$v")
 v="$(env_limit BOSUN_MAX_WAIT 0 604800)" && MAX_WAIT="$v"
@@ -110,7 +112,9 @@ while [ $# -gt 0 ] && [ "$1" != "--" ]; do
     --max-wait) [ $# -ge 2 ] || die "--max-wait needs a value"; whole MAX_WAIT --max-wait "$2" 1099511627776; shift 2 ;;
     --min-guest-mb) [ $# -ge 2 ] || die "--min-guest-mb needs a value"; whole MIN_GUEST_MB --min-guest-mb "$2" 1099511627776; shift 2 ;;
     --max-write-gb) [ $# -ge 2 ] || die "--max-write-gb needs a value"; MAX_WRITE_GB="$2"; shift 2 ;;
-    --slots|--min-avail-mb|--ns) [ $# -ge 2 ] || die "$1 needs a value"; args+=("$1" "$2"); shift 2 ;;
+    --or-skip) OR_SKIP=1; args+=(--or-skip); shift ;;
+    --ns) [ $# -ge 2 ] || die "--ns needs a value"; case "$2" in ''|*';'*) die "--ns takes a name without ;" ;; esac; NS="$2"; args+=(--ns "$2"); shift 2 ;;
+    --slots|--min-avail-mb) [ $# -ge 2 ] || die "$1 needs a value"; args+=("$1" "$2"); shift 2 ;;
     *) die "unknown option $1" ;;
   esac
 done
@@ -193,9 +197,11 @@ contained() {
   return "$code"
 }
 
-# Already inside a slot, so a script calling itself cannot deadlock. A run started from Windows arrives here too, and
+# Already inside a slot of this namespace (BOSUN_NS lists those the job holds, joined by ;, and an older marker has none
+# and always passes), so a script calling itself cannot deadlock. A job in another namespace takes its place there. A run started from Windows arrives here too, and
 # the Windows job can't see what Linux processes write, so it is contained on this side.
-if [ -n "${BOSUN_SLOT:-}" ]; then
+if [ -n "${BOSUN_SLOT:-}" ] && { [[ ";${BOSUN_NS:-};" == *";$NS;"* ]] ||
+    { [ -z "$OR_SKIP" ] && { [ -z "${BOSUN_NS:-}" ] || [ "$BOSUN_SLOT" = "-1" ]; }; }; }; then
   contained "$@"
   exit $?
 fi
@@ -248,6 +254,12 @@ rm -rf "$pipes"
 reply=""
 read -r reply <&4
 reply="${reply%$'\r'}"
+if [ "$reply" = "skipped" ] || { [ -n "$OR_SKIP" ] && [ "${reply%% *}" != "acquired" ]; }; then
+  # --or-skip never starts a job without its place, so a slot service that can't answer skips it too, and says so.
+  [ "$reply" = "skipped" ] || echo "[bosun] slot service unavailable, not started" >&2
+  exec 3>&- 4<&-
+  exit 75
+fi
 if [ "${reply%% *}" != "acquired" ]; then
   echo "[bosun] slot service unavailable, running without a slot" >&2
   exec 3>&- 4<&-
@@ -264,7 +276,14 @@ if [ "$SLOT" != "0" ] && [ "$SLOT" != "-1" ]; then
     [ -z "$announced" ] && echo "[bosun] waiting for WSL memory ($(guest_avail_mb) MB available)" >&2
     announced=1
     waited_ms=$(( $(now_ms) - began_ms ))
+    [ -n "$OR_SKIP" ] && ! kill -0 "$hold_pid" 2>/dev/null && break  # the place is lost: refused below
     if [ "$MAX_WAIT" -gt 0 ] && [ "$waited_ms" -ge $((MAX_WAIT * 1000)) ]; then
+      if [ -n "$OR_SKIP" ]; then
+        echo "[bosun] waited $((waited_ms / 1000)) s, not started (WSL memory)" >&2
+        ( echo skip >&3 ) 2>/dev/null
+        exec 3>&- 4<&-
+        exit 75
+      fi
       echo "[bosun] waited $((waited_ms / 1000)) s, starting anyway" >&2
       break
     fi
@@ -274,12 +293,18 @@ fi
 
 # WSLENV carries the marker to any Windows program, so a nested run there passes through too.
 export BOSUN_SLOT="$SLOT"
-export WSLENV="${WSLENV:+$WSLENV:}BOSUN_SLOT"
+[ "$SLOT" = "-1" ] || export BOSUN_NS="${BOSUN_NS:+$BOSUN_NS;}$NS"
+export WSLENV="${WSLENV:+$WSLENV:}BOSUN_SLOT:BOSUN_NS"
 
 # bosun.exe acquire writes the job's line (D01 T01 §2): it learns when the command started, after any wait for guest
 # memory, and how it ended. A pipe that's gone only loses the line: each message is sent from a subshell, so the
 # SIGPIPE of a dead acquire ends that subshell, never this script or the command's exit code.
-( echo start >&3 ) 2>/dev/null
+# With --or-skip a lost acquire has also lost the place, so the job doesn't start.
+if ! ( kill -0 "$hold_pid" && echo start >&3 ) 2>/dev/null && [ -n "$OR_SKIP" ]; then
+  echo "[bosun] the place was lost, not started" >&2
+  exec 3>&- 4<&-
+  exit 75
+fi
 contained "$@"
 code=$?
 ( echo "exit $code" >&3 ) 2>/dev/null

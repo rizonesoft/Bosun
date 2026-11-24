@@ -155,6 +155,45 @@ $t = ((Get-Date) - $started).TotalSeconds
 Check ($t -lt 4) "max-wait lets a job through (took $([int]$t) s)"
 Stop-Process -Id $holder.Id -Force
 
+# --or-skip never starts a job without its place or its memory, and says so with exit 75.
+$holder = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work 'skip0.txt')),'6000' -PassThru -WindowStyle Hidden
+Start-Sleep -Milliseconds 500
+& $bosun run --ns $ns --slots 1 --min-avail-mb 0 --max-wait 1 --or-skip -- $sleeper (Join-Path $work 'skip1.txt') 1 2>$null
+Check ($LASTEXITCODE -eq 75) "--or-skip exits 75 while the place is held (got $LASTEXITCODE)"
+Check (-not (Test-Path -LiteralPath (Join-Path $work 'skip1.txt'))) 'a skipped job never starts'
+Stop-Process -Id $holder.Id -Force
+Start-Sleep -Milliseconds 300
+& $bosun run --ns $ns --slots 1 --min-avail-mb 99999999 --max-wait 1 --or-skip -- $sleeper (Join-Path $work 'skip2.txt') 1 2>$null
+Check ($LASTEXITCODE -eq 75) "--or-skip holds the memory floor for the first slot too (got $LASTEXITCODE)"
+Check (-not (Test-Path -LiteralPath (Join-Path $work 'skip2.txt'))) 'a job skipped for memory never starts'
+$lone = & $bosun run --ns $ns --slots 1 --min-avail-mb 99999999 --max-wait 1 -- cmd /c 'echo %BOSUN_SLOT%' 2>$null
+Check ("$lone".Trim() -eq '0') "without --or-skip the first slot still admits a lone job (slot $lone)"
+& $bosun run --ns $ns --slots 1 --min-avail-mb 0 --max-wait 1 --or-skip -- $sleeper (Join-Path $work 'skip4.txt') 1
+Check ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath (Join-Path $work 'skip4.txt'))) '--or-skip runs the job when its place is free'
+Check (@(Records | Where-Object Name -like 'wait-*').Count -eq 0) 'a skipped job leaves no waiter record'
+
+# A job in one namespace takes its place in another, and still passes through in its own.
+$other = "${ns}Other"
+$holder = Start-Process $bosun -ArgumentList 'run','--ns',$other,'--slots','1','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work 'other0.txt')),'6000' -PassThru -WindowStyle Hidden
+Start-Sleep -Milliseconds 500
+$cross = Join-Path $work 'cross.cmd'
+Set-Content -LiteralPath $cross "@`"$bosun`" run --ns $other --slots 1 --min-avail-mb 0 --max-wait 1 --or-skip -- `"$sleeper`" `"$work\cross.txt`" 1`r`n@exit /b %ERRORLEVEL%"
+& $bosun run --ns $ns --slots 1 --min-avail-mb 0 -- $cross 2>$null
+Check ($LASTEXITCODE -eq 75) "a job inside one namespace waits for its place in another (got $LASTEXITCODE)"
+Check (-not (Test-Path -LiteralPath "$work\cross.txt")) 'the job in the other namespace did not start'
+Stop-Process -Id $holder.Id -Force
+
+# A job that timed out and started anyway holds nothing, so a job inside it that must not start without its place doesn't.
+$holder = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work 'late0.txt')),'8000' -PassThru -WindowStyle Hidden
+Start-Sleep -Milliseconds 500
+$inner = Join-Path $work 'inner.cmd'
+Set-Content -LiteralPath $inner "@`"$bosun`" run --ns $ns --slots 1 --min-avail-mb 0 --max-wait 1 --or-skip -- `"$sleeper`" `"$work\inner.txt`" 1`r`n@exit /b %ERRORLEVEL%"
+& $bosun run --ns $ns --slots 1 --min-avail-mb 0 --max-wait 1 -- $inner 2>$null
+Check ($LASTEXITCODE -eq 75 -and -not (Test-Path -LiteralPath "$work\inner.txt")) "a job that started without a place lends none to a job inside it (got $LASTEXITCODE)"
+Stop-Process -Id $holder.Id -Force
+& $bosun run --ns 'A;B' --slots 1 --min-avail-mb 0 -- $sleeper (Join-Path $work 'sep.txt') 1 2>$null
+Check ($LASTEXITCODE -eq 64) "a namespace holding the separator is refused (got $LASTEXITCODE)"
+
 # A nested run passes straight through instead of deadlocking on its own slot.
 $nested = Join-Path $work 'nested.cmd'
 Set-Content -LiteralPath $nested "@`"$bosun`" run --ns $ns --slots 1 --min-avail-mb 0 --max-wait 0 -- `"$sleeper`" `"$work\nested.txt`" 1"

@@ -84,6 +84,7 @@ struct Options {
     int interval_s = 30;
     bool once = false;
     bool json = false;
+    bool or_skip = false;  // run: at max_wait, exit 75 instead of starting anyway; the memory floor holds for slot 0 too
     // The WSL shim's own figures for status --json (D01 T01 §3), and its guest floor for a job's record.
     std::optional<uint64_t> guest_avail_mb, guest_total_mb, min_guest_mb;
     std::wstring wsl_logger;
@@ -113,6 +114,10 @@ bool parse_flags(const std::vector<std::wstring>& args, Options& o) {
         }
         if (a == L"--json") {
             o.json = true;
+            continue;
+        }
+        if (a == L"--or-skip") {
+            o.or_skip = true;
             continue;
         }
         if (i + 1 >= args.size()) return false;
@@ -148,7 +153,13 @@ bool parse_flags(const std::vector<std::wstring>& args, Options& o) {
             if (v != L"running" && v != L"stopped" && v != L"unknown") return false;
             o.wsl_logger = v;
         }
-        else if (a == L"--ns") o.ns = v;
+        else if (a == L"--ns") {
+            if (!dm::ns_ok(narrow(v))) {
+                o.bad = "--ns takes a name without ;";
+                return false;
+            }
+            o.ns = v;
+        }
         else if (a == L"--repo") o.repo = v;
         else if (a == L"--side") {
             if (v != L"windows" && v != L"wsl") return false;
@@ -190,9 +201,13 @@ bool slot_exists(const std::wstring& ns, int i) {
 struct Slot {
     HANDLE handle = nullptr;
     int index = -1;
+    bool skipped = false;  // --or-skip, and max_wait passed: the job must not start
 };
 
-// Takes a slot, or returns index -1 after max_wait so that a job is delayed and never stalled for good. `reason` hears
+constexpr int kSkipped = 75;  // bosun run's exit code for a skipped job (EX_TEMPFAIL: try again later)
+
+// Takes a slot, or returns index -1 after max_wait so that a job is delayed and never stalled for good; with --or-skip
+// it is marked skipped instead, and the caller starts nothing. `reason` hears
 // why it waits ("slot" while every slot it may take is held, "memory" while a free slot's floor is unmet) each time
 // that changes, so the waiter's record says why without being rewritten on every poll.
 Slot acquire_slot(const Options& o, const std::function<void(const char*)>& reason = {}) {
@@ -213,10 +228,10 @@ Slot acquire_slot(const Options& o, const std::function<void(const char*)>& reas
         for (int i = 0; i < o.slots; ++i) {
             DWORD w = WaitForSingleObject(handles[i], 0);
             if (w != WAIT_OBJECT_0 && w != WAIT_ABANDONED) continue;
-            if (dm::slot_admits(i, available_mb(), o.min_avail_mb)) {
+            if (dm::slot_admits(i, available_mb(), o.min_avail_mb, o.or_skip)) {
                 for (int j = 0; j < o.slots; ++j)
                     if (j != i) CloseHandle(handles[j]);
-                return {handles[i], i};
+                return {handles[i], i, false};
             }
             ReleaseMutex(handles[i]);
             why = "memory";
@@ -225,8 +240,12 @@ Slot acquire_slot(const Options& o, const std::function<void(const char*)>& reas
         told = why;
         auto waited = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start).count();
         if (o.max_wait_s && static_cast<uint64_t>(waited) >= o.max_wait_s) {
-            std::cerr << "[bosun] waited " << waited << " s, starting anyway without a slot\n";
             for (HANDLE h : handles) CloseHandle(h);
+            if (o.or_skip) {
+                std::cerr << "[bosun] waited " << waited << " s, not started (" << (std::strcmp(why, "memory") == 0 ? "memory" : "the place is held") << ")\n";
+                return {nullptr, -1, true};
+            }
+            std::cerr << "[bosun] waited " << waited << " s, starting anyway without a slot\n";
             return {};
         }
         if (!announced) {
@@ -688,7 +707,9 @@ int cmd_run(const Options& o) {
         std::cerr << "usage: bosun run [options] -- command [args]\n";
         return 64;
     }
-    if (!env(L"BOSUN_SLOT").empty()) return run_child(o);  // Already inside a slot: the outer job's record and line stand.
+    const std::string held_ns = narrow(env(L"BOSUN_NS"));
+    const std::string own_ns = narrow(o.ns);
+    if (dm::passes_through(narrow(env(L"BOSUN_SLOT")), held_ns, own_ns, o.or_skip)) return run_child(o);  // Already inside a slot here: the outer job's record and line stand.
     std::string started_at = utc_now();
     auto took = std::chrono::steady_clock::now();
     Records records(o);
@@ -701,12 +722,17 @@ int cmd_run(const Options& o) {
     Slot slot = acquire_slot(o, [&](const char* why) { records.waiting(why); });
     int waiting = 0;
     if (!g_wait.phase.compare_exchange_strong(waiting, 1)) Sleep(INFINITE);  // cancelled meanwhile: its handler exits
+    if (slot.skipped) {  // no job ran, so there is no line either
+        records.done();
+        return kSkipped;
+    }
     records.holding(slot.index);
     auto started = std::chrono::steady_clock::now();
     SetEnvironmentVariableW(L"BOSUN_SLOT", std::to_wstring(slot.index).c_str());
     // WSLENV carries the marker into WSL, so a nested run on the other side also passes through.
     std::wstring wslenv = env(L"WSLENV");
-    SetEnvironmentVariableW(L"WSLENV", (wslenv.empty() ? L"BOSUN_SLOT" : wslenv + L":BOSUN_SLOT").c_str());
+    SetEnvironmentVariableW(L"WSLENV", (wslenv.empty() ? L"BOSUN_SLOT:BOSUN_NS" : wslenv + L":BOSUN_SLOT:BOSUN_NS").c_str());
+    if (slot.index >= 0) SetEnvironmentVariableW(L"BOSUN_NS", widen(held_ns.empty() ? own_ns : held_ns + ";" + own_ns).c_str());
     int code = run_child(o, [&] { records.started(); });
     auto ended = std::chrono::steady_clock::now();
     records.done();  // before the release, so the next holder's record is never the one removed
@@ -731,12 +757,18 @@ int cmd_acquire(const Options& o) {
     Records records(job);
     records.waiting();
     Slot slot = acquire_slot(o, [&](const char* why) { records.waiting(why); });
+    if (slot.skipped) {
+        records.done();
+        std::cout << "skipped" << std::endl;
+        return 0;
+    }
     records.holding(slot.index);
     std::cout << "acquired " << slot.index << std::endl;
     // The shim says "start" as its command starts (after any wait for guest memory) and "exit <code>" once it ends; the
     // pipe closing with no code means the shim went away.
     auto started = std::chrono::steady_clock::now();
     bool told_start = false;
+    bool told_skip = false;
     std::optional<int64_t> code;
     std::string pending;
     char buf[256];
@@ -747,6 +779,7 @@ int cmd_acquire(const Options& o) {
         for (size_t end; (end = pending.find('\n')) != std::string::npos; pending.erase(0, end + 1)) {
             std::string line = pending.substr(0, end);
             if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line == "skip") told_skip = true;
             if (line == "start" && !told_start) {
                 started = std::chrono::steady_clock::now();
                 told_start = true;
@@ -762,6 +795,7 @@ int cmd_acquire(const Options& o) {
     if (!told_start) started = ended;  // the command never started: all of it was waiting, none of it running
     records.done();
     if (slot.handle) ReleaseMutex(slot.handle);
+    if (told_skip && !told_start) return 0;  // --or-skip in the guest: no job ran, so there is no line
     append_job_line(job_line(job, started_at, slot.index, seconds_since(took, started) + interop_lag_s, seconds_since(started, ended), code));
     return 0;
 }

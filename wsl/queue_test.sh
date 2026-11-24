@@ -46,6 +46,35 @@ elapsed=$SECONDS
 [ "$elapsed" -le 2 ]; check $? "a timed-out job does not wait a second time (took $elapsed s)"
 wait "$first"
 
+# --or-skip starts nothing without its place or its memory, and a job in one namespace takes its place in another.
+"$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 -- sleep 12 &
+first=$!
+sleep 1
+"$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 --max-wait 1 --or-skip -- touch "$WORK/skip1" 2>/dev/null
+got=$?
+[ "$got" = 75 ] && [ ! -e "$WORK/skip1" ]; check $? "--or-skip exits 75 and starts nothing while the place is held (got $got)"
+"$SHIM" run --ns "${NS}Outer" --slots 1 --min-avail-mb 0 -- "$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 --max-wait 1 --or-skip -- touch "$WORK/cross" 2>/dev/null
+got=$?
+[ "$got" = 75 ] && [ ! -e "$WORK/cross" ]; check $? "a job inside one namespace waits for its place in another (got $got)"
+wait "$first"
+"$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 99999999 --max-wait 1 --or-skip -- touch "$WORK/skip2" 2>/dev/null
+got=$?
+[ "$got" = 75 ] && [ ! -e "$WORK/skip2" ]; check $? "--or-skip holds the memory floor for the first slot too (got $got)"
+"$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 --max-wait 1 --or-skip -- touch "$WORK/skip3"
+[ -e "$WORK/skip3" ]; check $? "--or-skip runs the job when its place is free"
+"$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 -- "$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 --max-wait 1 --or-skip -- touch "$WORK/same"
+[ -e "$WORK/same" ]; check $? "a nested job in the same namespace still passes through"
+
+"$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 -- sleep 6 &
+first=$!
+sleep 1
+"$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 --max-wait 1 -- "$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 --max-wait 1 --or-skip -- touch "$WORK/late" 2>/dev/null
+got=$?
+[ "$got" = 75 ] && [ ! -e "$WORK/late" ]; check $? "a job that started without a place lends none to a job inside it (got $got)"
+wait "$first"
+"$SHIM" run --ns 'A;B' --slots 1 --min-avail-mb 0 -- true 2>/dev/null
+[ $? = 64 ]; check $? "a namespace holding the separator is refused"
+
 # SIGKILL of the shim must end the command and free the slot.
 "$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 -- bash -c 'echo $$ > "$1"; exec sleep 30' _ "$WORK/child.pid" &
 pid=$!

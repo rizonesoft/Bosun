@@ -16,9 +16,22 @@
 namespace dm {
 
 // Slot 0 always admits, so a lone job can never be blocked by the memory gate.
-inline bool slot_admits(int slot, uint64_t avail_mb, uint64_t min_avail_mb) {
-    return slot == 0 || avail_mb >= min_avail_mb;
+// `floor_first` (bosun run --or-skip): the first slot takes the floor too.
+inline bool slot_admits(int slot, uint64_t avail_mb, uint64_t min_avail_mb, bool floor_first = false) {
+    return (slot == 0 && !floor_first) || avail_mb >= min_avail_mb;
 }
+
+// Whether a job already holding slots in `held` (BOSUN_NS, its namespaces joined by ;) passes through a run in `ns`. A
+// job in another namespace takes its place there. An ordinary run inside a job that holds nothing that can be named (an
+// older shim's marker, or slot -1) passes as it always has; with --or-skip only a place really held lets it through.
+inline bool passes_through(const std::string& slot, const std::string& held, const std::string& ns, bool or_skip = false) {
+    if (slot.empty()) return false;
+    if ((";" + held + ";").find(";" + ns + ";") != std::string::npos) return true;
+    return !or_skip && (held.empty() || slot == "-1");
+}
+
+// A namespace joins BOSUN_NS, so it can't be empty or hold the separator.
+inline bool ns_ok(const std::string& ns) { return !ns.empty() && ns.find(';') == std::string::npos; }
 
 // A flag's or variable's whole number: ASCII digits only (no sign, space, prefix or trailing text) within [lo, hi], or
 // nothing. std::stoull took "12x" as 12 and "-1" as the largest value, so a typo became a limit nobody asked for.
